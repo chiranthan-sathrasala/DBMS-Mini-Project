@@ -1,0 +1,28 @@
+# Import this Blueprint on Render to host the complete Next.js app on a free web service.
+# PostgreSQL remains on Neon and MongoDB plus uploaded files remain on Atlas.
+services:
+  - type: web
+    name: projectpulse-dbms
+    runtime: node
+    region: singapore
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        value: projectpulse
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: JOB_SECRET
+        generateValue: true
+      - key: STORAGE_DRIVER
+        value: mongodb-gridfs
+      - key: STORAGE_MAX_FILE_MB
+        value: "10"

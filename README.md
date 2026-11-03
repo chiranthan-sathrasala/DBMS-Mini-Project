@@ -57,7 +57,7 @@ npm run db:seed             # demo data: PostgreSQL + MongoDB + embeddings (prog
 npm run dev                 # http://localhost:3000
 ```
 
-For hosted deployments, see [Vercel deployment](docs/DEPLOY_VERCEL.md). The Next.js frontend and API run on Vercel, PostgreSQL with pgvector runs on Neon, MongoDB runs on Atlas, and private uploads live in Vercel Blob.
+For the hosted deployment, see [Render deployment](docs/DEPLOY_RENDER.md). The Next.js frontend and API run on Render, PostgreSQL with pgvector runs on Neon, and MongoDB plus private uploads run on Atlas. The earlier [Vercel deployment](docs/DEPLOY_VERCEL.md) remains an alternative when fixed outbound IPs are available.
 
 Individual steps: `npm run mongo:init` (collections, validators, indexes; the seed does it too), `npm run embed:backfill` (embeddings and similarity screening), `npm run risk:sweep` (fresh risk snapshots), `npm run mongo:reconcile` (repair the MongoDB side from PostgreSQL), `npm run db:reset` (drop the schema and re-migrate; the next `db:seed` rebuilds the demo).
 
