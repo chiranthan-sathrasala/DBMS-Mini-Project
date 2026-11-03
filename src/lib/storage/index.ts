@@ -2,7 +2,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { del, get, put } from '@vercel/blob';
+import { GridFSBucket } from 'mongodb';
 import { ApiError } from '@/lib/api/errors';
+import { mongoDb } from '@/lib/db/mongo';
 
 /**
  * Local file storage (spec 16). Files live OUTSIDE public/, under random names, and are only ever
@@ -21,6 +23,20 @@ export const ALLOWED_TYPES: Record<string, string> = {
 export const baseDir = () => path.resolve(process.cwd(), process.env.STORAGE_LOCAL_PATH ?? './storage/uploads');
 export const maxBytes = () => Number(process.env.STORAGE_MAX_FILE_MB ?? 10) * 1024 * 1024;
 const useBlob = () => process.env.STORAGE_DRIVER === 'vercel-blob';
+const useGridFS = () => process.env.STORAGE_DRIVER === 'mongodb-gridfs';
+
+async function gridFS(): Promise<GridFSBucket> {
+  return new GridFSBucket(await mongoDb(), { bucketName: 'uploads' });
+}
+
+async function putGridFS(key: string, bytes: Buffer): Promise<void> {
+  const stream = (await gridFS()).openUploadStream(key);
+  await new Promise<void>((resolve, reject) => {
+    stream.on('finish', resolve);
+    stream.on('error', reject);
+    stream.end(bytes);
+  });
+}
 
 const KEY_RE = /^[A-Za-z0-9_-]+(\/[A-Za-z0-9_.-]+)+$/;
 
@@ -69,7 +85,9 @@ export async function saveUpload(file: File): Promise<StoredFile> {
   }
   const now = new Date();
   const key = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}.${ext}`;
-  if (useBlob()) {
+  if (useGridFS()) {
+    await putGridFS(key, bytes);
+  } else if (useBlob()) {
     await put(key, bytes, { access: 'private', addRandomSuffix: false, contentType: ALLOWED_TYPES[ext] });
   } else {
     const full = safePath(key);
@@ -88,12 +106,21 @@ export async function saveUpload(file: File): Promise<StoredFile> {
 export async function deleteStored(key: string | undefined | null): Promise<void> {
   if (!key || /^https?:/i.test(key)) return;
   try {
-    if (useBlob()) await del(key);
+    if (useGridFS()) {
+      const bucket = await gridFS();
+      const file = await bucket.find({ filename: key }).next();
+      if (file) await bucket.delete(file._id);
+    } else if (useBlob()) await del(key);
     else await fs.unlink(safePath(key));
   } catch { /* already gone or compensating cleanup failed */ }
 }
 
 export async function readStored(key: string): Promise<Buffer> {
+  if (useGridFS()) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of (await gridFS()).openDownloadStreamByName(key)) chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks);
+  }
   if (useBlob()) {
     const result = await get(key, { access: 'private' });
     if (!result || result.statusCode !== 200) throw new Error('Stored file not found');
@@ -104,7 +131,9 @@ export async function readStored(key: string): Promise<Buffer> {
 
 /** Used by the seed: write demo content under seed/ so downloads work for seeded versions. */
 export async function writeSeedFile(key: string, content: string): Promise<{ size: number; checksum: string }> {
-  if (useBlob()) {
+  if (useGridFS()) {
+    await putGridFS(key, Buffer.from(content));
+  } else if (useBlob()) {
     await put(key, content, { access: 'private', addRandomSuffix: false, contentType: 'text/markdown; charset=utf-8' });
   } else {
     const full = safePath(key);
